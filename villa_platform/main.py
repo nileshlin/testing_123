@@ -5,51 +5,93 @@ import orjson
 from timeit import default_timer as timer
 from fastapi.middleware.cors import CORSMiddleware
 from torch_unit import disable_torch_init
-from image_modifiers import load_image
+from image_modifiers import load_images
 from load_models import LoadVilaImage
-
+import torch
 llava_model = LoadVilaImage()
-
-model_path = 'C:\\Users\linuxdev\Desktop\Projects\\vila_assistants\VILA1.5-3b'
-
+from constants import *
+from conversation import conv_templates,SeparatorStyle
+import re
+from mm_utils import process_images,tokenizer_image_token,KeywordsStoppingCriteria
+model_path = '/content/VILA1.5-3b/'
+model_name = ''
 tokenizer, model, image_processor, context_len = llava_model.load_pretrained_model(model_path)
+image_files = ['av.png']
+video_file = None
+
+PROMPT = ''
+
+qs = PROMPT
+
+image_token_se = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
+if IMAGE_PLACEHOLDER in qs:
+    if model.config.mm_use_im_start_end:
+        qs = re.sub(IMAGE_PLACEHOLDER, image_token_se, qs)
+    else:
+        qs = re.sub(IMAGE_PLACEHOLDER, DEFAULT_IMAGE_TOKEN, qs)
+else:
+    if DEFAULT_IMAGE_TOKEN not in qs:
+        print("no <image> tag found in input. Automatically append one at the beginning of text.")
+
+print("input: ", qs)
+
+if "llama-2" in model_name.lower():
+    conv_mode = "llava_llama_2"
+elif "v1" in model_name.lower():
+    conv_mode = "llava_v1"
+elif "mpt" in model_name.lower():
+    conv_mode = "mpt"
+else:
+    conv_mode = "llava_v0"
+
+if conv_mode is not None and conv_mode != conv_mode:
+    print(
+        "[WARNING] the auto inferred conversation mode is {}, while `--conv-mode` is {}, using {}".format(
+            conv_mode, conv_mode, conv_mode
+        )
+    )
+else:
+    conv_mode = conv_mode
+
+conv = conv_templates[conv_mode].copy()
+conv.append_message(conv.roles[0], qs)
+conv.append_message(conv.roles[1], None)
+prompt = conv.get_prompt()
+
+images = load_images(image_files)
+if video_file:
+    from llava.mm_utils import opencv_extract_frames
+    images = opencv_extract_frames(video_file, frames=6)
+
+images_tensor = process_images(images, image_processor, model.config).to(model.device, dtype=torch.float16)
+input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt").unsqueeze(0).cuda()
+
+stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
+keywords = [stop_str]
+stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
+
+print(images_tensor.shape)
+with torch.inference_mode():
+    output_ids = model.generate(
+        input_ids,
+        images=[
+            images_tensor,
+        ],
+        do_sample=True,
+        temperature=0.2,
+        top_p=None,
+        num_beams=1,
+        max_new_tokens=12,
+        use_cache=True,
+        stopping_criteria=[stopping_criteria],
+    )
+
+outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
+outputs = outputs.strip()
+if outputs.endswith(stop_str):
+    outputs = outputs[: -len(stop_str)]
+outputs = outputs.strip()
+print(outputs)
 
 
-# app = FastAPI()
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-# # TODO, move logger to a separate  file to use everywhere
-# logging.basicConfig(level=logging.INFO)
-# logger = logging.getLogger(__name__)
-#
-#
-# @app.get("/api")
-# async def index():
-#     logger.info('Executing Request : ')
-#     return {
-#         'status': 'success',
-#         'message': 'Hello from main.py',
-#     }
-#
-#
-# @app.post("/api/describe_image")
-# def query_check(request: IntentQuery):
-#     disable_torch_init()
-#     image = load_image(request.IMAGE)
-#
-#     return agents.intentClassifier(user_query)
-#
-#
-# @app.post("/api/load_parcels_from_db")
-# def parcel_query_from_db(query: ParcelQueryNoAuth):
-#     user_query = query.message
-#     start = timer()
-#     parcel_data: bytes = orjson.dumps(processUserQueryBulkDataPgVector(parcel_query=user_query))
-#     end = timer()
-#     logger.info(f"Time Taken to Get Parcel using Bulk Data: {(end - start)}")
-#     return parcel_data
+

@@ -16,6 +16,7 @@ class LoadVilaImage:
             **kwargs,
     ):
         #By default it will load Llavallama
+        kwargs["torch_dtype"] = torch.float16
         config = AutoConfig.from_pretrained(model_path)
         print(f"INFO: LOADED CONFIG,This is model config",config)
         config.resume_path = model_path
