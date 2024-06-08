@@ -25,10 +25,14 @@ Activate virtualenv
 conda activate vila
 pip install poetry 
 poetry install
-
 conda install -c nvidia cuda-toolkit -y
 wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.4.2/flash_attn-2.4.2+cu118torch2.0cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 pip install flash_attn-2.4.2+cu118torch2.0cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+pip install protobuf
+
+Note: Need to install villa as well to fix cublas error
+pip install -e .
+
 
 
 
