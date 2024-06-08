@@ -23,6 +23,8 @@ conda create -n vila python=3.10 -y
 Activate virtualenv
 
 conda activate vila
+pip install poetry 
+poetry install
 
 conda install -c nvidia cuda-toolkit -y
 
